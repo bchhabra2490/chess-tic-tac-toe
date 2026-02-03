@@ -23,7 +23,7 @@ let currentPlayer;
 let gameOver;
 
 // Modes: "human" (2 players) or "ai" (human vs AI as Black)
-let gameMode = "human";
+let gameMode = "ai";
 let isAiThinking = false;
 
 // UI selection state
