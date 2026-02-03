@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chess Tic-Tac-Toe</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #e0f2fe 0, #eff6ff 40%, #e5e7eb 100%);
+      color: #0f172a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+
+    .game-wrapper {
+      background: linear-gradient(145deg, #f9fafb, #e5f0fb);
+      padding: 20px 18px 22px;
+      border-radius: 20px;
+      box-shadow:
+        0 18px 40px rgba(15, 23, 42, 0.18),
+        0 0 0 1px rgba(148, 163, 184, 0.35);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      max-width: 620px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .game-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .game-title {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      background: #4f46e5;
+      border: none;
+      color: white;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.12s ease, transform 0.08s ease;
+    }
+
+    .controls button[data-mode-button] {
+      background: #0f172a;
+      font-size: 12px;
+      padding-inline: 10px;
+    }
+
+    .controls button.mode-active {
+      background: #22c55e;
+    }
+
+    button:hover {
+      background: #4338ca;
+      transform: translateY(-1px);
+    }
+
+    button:active {
+      background: #3730a3;
+      transform: translateY(0);
+    }
+
+    .board-row {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      background: radial-gradient(circle at top, #dbeafe 0, #e5e7eb 60%);
+      padding: 8px;
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+    }
+
+    .cell {
+      position: relative;
+      width: min(18vw, 96px);
+      height: min(18vw, 96px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 10% 0, #f9fafb 0, #e5e7eb 55%);
+      border-radius: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.8);
+      cursor: pointer;
+      user-select: none;
+      overflow: hidden;
+      transition: border-color 0.12s ease, transform 0.08s ease, box-shadow 0.12s ease, background 0.18s ease;
+    }
+
+    .cell:hover {
+      border-color: #60a5fa;
+      box-shadow: 0 6px 14px rgba(37, 99, 235, 0.18);
+      transform: translateY(-1px);
+    }
+
+    .cell:active {
+      transform: translateY(0);
+    }
+
+    .cell-content {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+    }
+
+    .cell-content img {
+      max-width: 72%;
+      max-height: 72%;
+      pointer-events: none;
+      display: block;
+    }
+
+    .side-pieces {
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      gap: 8px;
+      min-width: 0;
+      min-height: 56px; /* keep a consistent strip even when empty */
+      align-items: center;
+    }
+
+    .piece-slot {
+      width: 48px;
+      height: 48px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      background: radial-gradient(circle at 20% 0, #eff6ff 0, #e0f2fe 60%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: grab;
+      box-shadow: 0 10px 20px rgba(15, 23, 42, 0.18);
+      transition: transform 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease, background 0.18s ease;
+    }
+
+    .piece-slot img {
+      max-width: 80%;
+      max-height: 80%;
+      pointer-events: none;
+      display: block;
+    }
+
+    .piece-slot:hover {
+      border-color: #60a5fa;
+      transform: translateY(-1px);
+      box-shadow: 0 12px 22px rgba(15, 23, 42, 0.25);
+      background: radial-gradient(circle at 20% 0, #e0f2fe 0, #bfdbfe 60%);
+    }
+
+    .piece-slot:active {
+      cursor: grabbing;
+      transform: translateY(0);
+      box-shadow: 0 6px 12px rgba(15, 23, 42, 0.28);
+    }
+
+    .cell-x .cell-content {
+      color: #16a34a;
+    }
+
+    .cell-o .cell-content {
+      color: #f97316;
+    }
+
+    /* Selected square when choosing a piece to move */
+    .cell-selected {
+      box-shadow: 0 0 0 2px #6366f1, 0 0 18px rgba(79, 70, 229, 0.35);
+      border-color: #6366f1 !important;
+      transform: translateY(-1px);
+    }
+
+    /* Highlight all squares based on whose turn it is */
+    .game-wrapper.turn-x .cell {
+      border-color: rgba(22, 163, 74, 0.9);
+      box-shadow: 0 0 0 1px rgba(22, 163, 74, 0.4);
+    }
+
+    .game-wrapper.turn-o .cell {
+      border-color: rgba(249, 115, 22, 0.9);
+      box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.4);
+    }
+
+    .status {
+      min-height: 22px;
+      font-size: 14px;
+      color: #475569;
+      margin-bottom: 4px;
+    }
+
+    .status-strong {
+      color: #0f172a;
+      font-weight: 600;
+    }
+
+    .legend {
+      font-size: 11px;
+      color: #6b7280;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+
+    .legend span {
+      white-space: nowrap;
+    }
+
+    .rules {
+      margin-top: 10px;
+      font-size: 11px;
+      line-height: 1.5;
+      color: #64748b;
+    }
+
+    .rules-title {
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: #0f172a;
+    }
+
+    .rules-list {
+      list-style: disc;
+      padding-left: 18px;
+      margin: 0;
+    }
+
+    .rules-list li + li {
+      margin-top: 2px;
+    }
+    /* Responsive tweaks */
+    @media (max-width: 640px) {
+      .game-wrapper {
+        max-width: 100%;
+        padding: 16px 10px 18px;
+        border-radius: 16px;
+      }
+
+      .game-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+      }
+
+      .board-row {
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .side-pieces {
+        flex-direction: row;
+        justify-content: center;
+        min-width: 0;
+      }
+
+      .board {
+        width: 100%;
+        max-width: 360px;
+      }
+
+      .cell {
+        width: min(20vw, 80px);
+        height: min(20vw, 80px);
+      }
+
+      .status {
+        font-size: 13px;
+      }
+
+      .legend {
+        font-size: 10px;
+      }
+
+      .rules {
+        font-size: 10px;
+      }
+
+      .controls {
+        flex-wrap: wrap;
+      }
+
+      .controls button {
+        font-size: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="game-wrapper">
+    <div class="game-header">
+      <div class="game-title">Chess Tic‑Tac‑Toe</div>
+      <div class="controls">
+        <button type="button" onclick="initGame()">New Game</button>
+        <button type="button" data-mode-button data-mode="human" onclick="setGameMode('human')">2 Players</button>
+        <button type="button" data-mode-button data-mode="ai" onclick="setGameMode('ai')">Vs AI</button>
+      </div>
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <div class="board-row">
+      <div class="side-pieces" id="ai-pieces"></div>
+
+      <div class="board">
+        <div id="cell-0" class="cell" onclick="handleCellClick(0)"><div class="cell-content"></div></div>
+        <div id="cell-1" class="cell" onclick="handleCellClick(1)"><div class="cell-content"></div></div>
+        <div id="cell-2" class="cell" onclick="handleCellClick(2)"><div class="cell-content"></div></div>
+        <div id="cell-3" class="cell" onclick="handleCellClick(3)"><div class="cell-content"></div></div>
+        <div id="cell-4" class="cell" onclick="handleCellClick(4)"><div class="cell-content"></div></div>
+        <div id="cell-5" class="cell" onclick="handleCellClick(5)"><div class="cell-content"></div></div>
+        <div id="cell-6" class="cell" onclick="handleCellClick(6)"><div class="cell-content"></div></div>
+        <div id="cell-7" class="cell" onclick="handleCellClick(7)"><div class="cell-content"></div></div>
+        <div id="cell-8" class="cell" onclick="handleCellClick(8)"><div class="cell-content"></div></div>
+        <div id="cell-9" class="cell" onclick="handleCellClick(9)"><div class="cell-content"></div></div>
+        <div id="cell-10" class="cell" onclick="handleCellClick(10)"><div class="cell-content"></div></div>
+        <div id="cell-11" class="cell" onclick="handleCellClick(11)"><div class="cell-content"></div></div>
+        <div id="cell-12" class="cell" onclick="handleCellClick(12)"><div class="cell-content"></div></div>
+        <div id="cell-13" class="cell" onclick="handleCellClick(13)"><div class="cell-content"></div></div>
+        <div id="cell-14" class="cell" onclick="handleCellClick(14)"><div class="cell-content"></div></div>
+        <div id="cell-15" class="cell" onclick="handleCellClick(15)"><div class="cell-content"></div></div>
+      </div>
+
+      <div class="side-pieces" id="human-pieces"></div>
+    </div>
+
+    <div class="rules">
+      <div class="rules-title">Rules</div>
+      <ul class="rules-list">
+        <li>Each side has one pawn, rook, knight, and bishop.</li>
+        <li>On your turn, either place a piece from your side or move one of your pieces.</li>
+        <li>Moving is only allowed after both players have three pieces on the board.</li>
+        <li>Pieces move like in chess on this 4×4 board. Pawns do not promote; when they reach the far rank, they reverse direction on future moves.</li>
+        <li>Captured pieces return to their owner’s side to be placed again.</li>
+        <li>First to get four of their pieces in a row (row, column, or diagonal) wins.</li>
+      </ul>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+  <script>
+    window.addEventListener("DOMContentLoaded", function () {
+      initGame();
+    });
+  </script>
+</body>
+</html>
