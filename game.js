@@ -536,38 +536,267 @@ function isLegalPawnMove(fr, fc, tr, tc, piece) {
 }
 
 /****************************************************
- * AI helper functions (simple random AI for Black)
+ * AI: minimax with alpha-beta pruning
+ * AI plays as Black (O), human as White (X). Maximizing = O.
  ****************************************************/
 
-function getAllLegalPlacements(player) {
-  const results = [];
-  const pool = pools[player];
-  if (!pool || pool.length === 0) return results;
+function cloneBoard(b) {
+  return b.map(cell =>
+    cell ? { player: cell.player, type: cell.type, dir: cell.dir } : null
+  );
+}
 
+function clonePools(p) {
+  return { [PLAYER_X]: p[PLAYER_X].slice(), [PLAYER_O]: p[PLAYER_O].slice() };
+}
+
+function countPiecesOnBoardFor(b, player) {
+  return b.reduce(
+    (acc, cell) => acc + (cell && cell.player === player ? 1 : 0),
+    0
+  );
+}
+
+function bothPlayersHaveThreeFor(b) {
+  return (
+    countPiecesOnBoardFor(b, PLAYER_X) >= 3 &&
+    countPiecesOnBoardFor(b, PLAYER_O) >= 3
+  );
+}
+
+function canPlayerMovePiecesFor(b, p, player) {
+  return bothPlayersHaveThreeFor(b);
+}
+
+function isLegalRookMoveOnBoard(b, fr, fc, tr, tc) {
+  if (fr !== tr && fc !== tc) return false;
+  const stepRow = fr === tr ? 0 : tr > fr ? 1 : -1;
+  const stepCol = fc === tc ? 0 : tc > fc ? 1 : -1;
+  let r = fr + stepRow;
+  let c = fc + stepCol;
+  while (r !== tr || c !== tc) {
+    if (b[rowColToIndex(r, c)] !== null) return false;
+    r += stepRow;
+    c += stepCol;
+  }
+  return true;
+}
+
+function isLegalBishopMoveOnBoard(b, fr, fc, tr, tc) {
+  const dr = tr - fr;
+  const dc = tc - fc;
+  if (Math.abs(dr) !== Math.abs(dc) || dr === 0) return false;
+  const stepRow = dr > 0 ? 1 : -1;
+  const stepCol = dc > 0 ? 1 : -1;
+  let r = fr + stepRow;
+  let c = fc + stepCol;
+  while (r !== tr || c !== tc) {
+    if (b[rowColToIndex(r, c)] !== null) return false;
+    r += stepRow;
+    c += stepCol;
+  }
+  return true;
+}
+
+function isLegalPawnMoveOnBoard(b, fr, fc, tr, tc, piece) {
+  if (typeof piece.dir !== "number") return false;
+  const dir = piece.dir;
+  const forwardRow = fr + dir;
+  const backwardRow = fr - dir;
+  if (tc === fc && tr === forwardRow) {
+    if (b[rowColToIndex(tr, tc)] === null) return true;
+  }
+  if ((fr === 0 || fr === BOARD_SIZE - 1) && tr === backwardRow) {
+    if (b[rowColToIndex(tr, tc)] === null) return true;
+  }
+  if (tr === forwardRow && Math.abs(tc - fc) === 1) {
+    const target = b[rowColToIndex(tr, tc)];
+    if (target && target.player !== piece.player) return true;
+  }
+  return false;
+}
+
+function isLegalMoveOnBoard(b, fromIndex, toIndex, piece) {
+  const { row: fr, col: fc } = indexToRowCol(fromIndex);
+  const { row: tr, col: tc } = indexToRowCol(toIndex);
+  const dr = tr - fr;
+  const dc = tc - fc;
+  switch (piece.type) {
+    case "R":
+      return isLegalRookMoveOnBoard(b, fr, fc, tr, tc);
+    case "B":
+      return isLegalBishopMoveOnBoard(b, fr, fc, tr, tc);
+    case "N":
+      return (Math.abs(dr) === 1 && Math.abs(dc) === 2) ||
+        (Math.abs(dr) === 2 && Math.abs(dc) === 1);
+    case "P":
+      return isLegalPawnMoveOnBoard(b, fr, fc, tr, tc, piece);
+    default:
+      return false;
+  }
+}
+
+function getAllLegalPlacementsFor(b, p, player) {
+  const results = [];
+  const pool = p[player];
+  if (!pool || pool.length === 0) return results;
   for (let i = 0; i < BOARD_CELLS; i++) {
-    if (board[i] !== null) continue;
+    if (b[i] !== null) continue;
     for (let t = 0; t < pool.length; t++) {
-      results.push({ index: i, type: pool[t] });
+      results.push({ kind: "place", index: i, type: pool[t] });
     }
   }
   return results;
 }
 
-function getAllLegalMoves(player) {
+function getAllLegalMovesFor(b, p, player) {
   const moves = [];
   for (let i = 0; i < BOARD_CELLS; i++) {
-    const cell = board[i];
+    const cell = b[i];
     if (!cell || cell.player !== player) continue;
     for (let j = 0; j < BOARD_CELLS; j++) {
       if (i === j) continue;
-      const target = board[j];
+      const target = b[j];
       if (target && target.player === player) continue;
-      if (isLegalMove(i, j, cell)) {
-        moves.push({ from: i, to: j });
+      if (isLegalMoveOnBoard(b, i, j, cell)) {
+        moves.push({ kind: "move", from: i, to: j });
       }
     }
   }
   return moves;
+}
+
+function getAllActions(b, p, player) {
+  const placements = getAllLegalPlacementsFor(b, p, player);
+  const canMove = canPlayerMovePiecesFor(b, p, player);
+  const moves = canMove ? getAllLegalMovesFor(b, p, player) : [];
+  return [...placements, ...moves];
+}
+
+function applyPlacement(b, p, player, type, index) {
+  const pool = p[player];
+  const idx = pool.indexOf(type);
+  if (idx === -1) return;
+  const piece = { player, type };
+  if (type === "P") {
+    piece.dir = player === PLAYER_X ? -1 : 1;
+  }
+  b[index] = piece;
+  pool.splice(idx, 1);
+}
+
+function applyMove(b, p, fromIndex, toIndex) {
+  const fromCell = b[fromIndex];
+  if (!fromCell) return;
+  const toCell = b[toIndex];
+  if (toCell && toCell.player !== fromCell.player) {
+    p[toCell.player].push(toCell.type);
+  }
+  b[toIndex] = { ...fromCell };
+  b[fromIndex] = null;
+  if (fromCell.type === "P" && typeof fromCell.dir === "number") {
+    const { row } = indexToRowCol(toIndex);
+    if (row === 0 || row === BOARD_SIZE - 1) {
+      b[toIndex].dir = -fromCell.dir;
+    }
+  }
+}
+
+const MINIMAX_WIN = 100;
+const MINIMAX_LOSS = -100;
+const MINIMAX_DRAW = 0;
+const MAX_DEPTH = 3;
+
+function minimax(b, p, depth, isMaximizing, alpha, beta) {
+  const winner = checkWinner(b);
+  if (winner === PLAYER_O) return MINIMAX_WIN - depth;
+  if (winner === PLAYER_X) return MINIMAX_LOSS + depth;
+  if (isBoardFull(b)) return MINIMAX_DRAW;
+  if (depth >= MAX_DEPTH) return MINIMAX_DRAW;
+
+  const player = isMaximizing ? PLAYER_O : PLAYER_X;
+  const actions = getAllActions(b, p, player);
+
+  if (actions.length === 0) {
+    return MINIMAX_DRAW;
+  }
+
+  if (isMaximizing) {
+    let best = MINIMAX_LOSS;
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      const b2 = cloneBoard(b);
+      const p2 = clonePools(p);
+      if (action.kind === "place") {
+        applyPlacement(b2, p2, PLAYER_O, action.type, action.index);
+      } else {
+        applyMove(b2, p2, action.from, action.to);
+      }
+      const score = minimax(b2, p2, depth + 1, false, alpha, beta);
+      best = Math.max(best, score);
+      alpha = Math.max(alpha, score);
+      if (beta <= alpha) break;
+    }
+    return best;
+  } else {
+    let best = MINIMAX_WIN;
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      const b2 = cloneBoard(b);
+      const p2 = clonePools(p);
+      if (action.kind === "place") {
+        applyPlacement(b2, p2, PLAYER_X, action.type, action.index);
+      } else {
+        applyMove(b2, p2, action.from, action.to);
+      }
+      const score = minimax(b2, p2, depth + 1, true, alpha, beta);
+      best = Math.min(best, score);
+      beta = Math.min(beta, score);
+      if (beta <= alpha) break;
+    }
+    return best;
+  }
+}
+
+function getBestAiAction() {
+  const b = cloneBoard(board);
+  const p = clonePools(pools);
+  const actions = getAllActions(b, p, PLAYER_O);
+  if (actions.length === 0) return null;
+
+  let bestScore = MINIMAX_LOSS;
+  let bestAction = null;
+
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i];
+    const b2 = cloneBoard(board);
+    const p2 = clonePools(pools);
+    if (action.kind === "place") {
+      applyPlacement(b2, p2, PLAYER_O, action.type, action.index);
+    } else {
+      applyMove(b2, p2, action.from, action.to);
+    }
+    const score = minimax(b2, p2, 0, false, MINIMAX_LOSS, MINIMAX_WIN);
+    if (score > bestScore) {
+      bestScore = score;
+      bestAction = action;
+    }
+  }
+  return bestAction;
+}
+
+function getAllLegalPlacements(player) {
+  return getAllLegalPlacementsFor(board, pools, player).map(({ index, type }) => ({
+    index,
+    type
+  }));
+}
+
+function getAllLegalMoves(player) {
+  return getAllLegalMovesFor(board, pools, player).map(({ from, to }) => ({
+    from,
+    to
+  }));
 }
 
 function maybeTriggerAiTurn() {
@@ -590,28 +819,18 @@ function aiTakeTurn() {
   if (gameOver) return;
   if (currentPlayer !== PLAYER_O) return;
 
-  const canMove = canCurrentPlayerMovePieces();
-  const placements = getAllLegalPlacements(PLAYER_O);
-  const moves = canMove ? getAllLegalMoves(PLAYER_O) : [];
-
-  if (placements.length === 0 && moves.length === 0) {
-    // No legal action: just pass the turn back
+  const action = getBestAiAction();
+  if (!action) {
     currentPlayer = PLAYER_X;
     renderBoard();
     renderPiecePools();
     return;
   }
 
-  const options = [];
-  placements.forEach(p => options.push({ kind: "place", ...p }));
-  moves.forEach(m => options.push({ kind: "move", ...m }));
-
-  const choice = options[Math.floor(Math.random() * options.length)];
-
-  if (choice.kind === "place") {
-    placePiece(PLAYER_O, choice.type, choice.index);
+  if (action.kind === "place") {
+    placePiece(PLAYER_O, action.type, action.index);
   } else {
-    tryMovePiece(choice.from, choice.to);
+    tryMovePiece(action.from, action.to);
   }
 }
 
