@@ -163,6 +163,8 @@ function findAvailableRoom() {
 
 io.on("connection", (socket) => {
   console.log(`Player connected: ${socket.id}`);
+  // Broadcast current online player count
+  io.emit("onlineCount", players.size + 1); // +1 for this connecting socket (not yet in map)
 
   socket.on("findOrCreateRoom", () => {
     // Try to find an available room first
@@ -402,6 +404,8 @@ io.on("connection", (socket) => {
       players.delete(socket.id);
     }
     console.log(`Player disconnected: ${socket.id}`);
+    // Broadcast updated online player count
+    io.emit("onlineCount", players.size);
   });
 });
 

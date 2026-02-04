@@ -31,6 +31,7 @@ let socket = null;
 let onlinePlayerId = null; // "X" or "O" assigned by server
 let roomId = null;
 let isRoomFull = false; // Track if room has 2 players
+let onlineCount = 0; // How many players are online in total
 
 // UI selection state
 let selectedFromBoardIndex = null; // index of a selected piece to move
@@ -305,7 +306,13 @@ function updateStatus() {
       modeLabel = " (Online - connecting...)";
     }
   }
-  statusEl.textContent = colorName + " to play" + modeLabel + ". " + movePart;
+  const onlineInfo =
+    gameMode === "online" && onlineCount > 0
+      ? ` [${onlineCount} online]`
+      : "";
+
+  statusEl.textContent =
+    colorName + " to play" + modeLabel + onlineInfo + ". " + movePart;
 
   // Highlight board based on whose turn it is
   const wrapper = document.querySelector(".game-wrapper");
@@ -1108,6 +1115,14 @@ function setupSocketHandlers() {
 
   socket.on("gameStateUpdate", (gameState) => {
     syncGameStateFromServer(gameState);
+  });
+
+  socket.on("onlineCount", (count) => {
+    onlineCount = count;
+    // Only bother updating status in online mode
+    if (gameMode === "online") {
+      updateStatus();
+    }
   });
 
   socket.on("error", (data) => {
