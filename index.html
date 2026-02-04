@@ -326,8 +326,11 @@
         <button type="button" onclick="initGame()">New Game</button>
         <button type="button" data-mode-button data-mode="human" onclick="setGameMode('human')">2 Players</button>
         <button type="button" data-mode-button data-mode="ai" onclick="setGameMode('ai')">Vs AI</button>
+        <button type="button" data-mode-button data-mode="online" onclick="setGameMode('online')">Online</button>
       </div>
     </div>
+
+    <div id="room-ui" style="display: none;"></div>
 
     <div id="status" class="status"></div>
 
@@ -369,6 +372,7 @@
     </div>
   </div>
 
+  <script src="/socket.io/socket.io.js"></script>
   <script src="game.js"></script>
   <script>
     window.addEventListener("DOMContentLoaded", function () {

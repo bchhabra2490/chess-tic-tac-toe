@@ -22,9 +22,15 @@ let pools; // remaining pieces not yet on the board
 let currentPlayer;
 let gameOver;
 
-// Modes: "human" (2 players) or "ai" (human vs AI as Black)
-let gameMode = "ai";
+// Modes: "human" (2 players), "ai" (human vs AI as Black), or "online"
+let gameMode = "online";
 let isAiThinking = false;
+
+// Socket.IO connection for online mode
+let socket = null;
+let onlinePlayerId = null; // "X" or "O" assigned by server
+let roomId = null;
+let isRoomFull = false; // Track if room has 2 players
 
 // UI selection state
 let selectedFromBoardIndex = null; // index of a selected piece to move
@@ -124,13 +130,41 @@ function getPieceSvgPath(player, type) {
   return "pieces-basic-svg/" + base + "-" + colorSuffix + ".svg";
 }
 
+function getDisplayIndex(boardIndex) {
+  // Determine if board should be flipped (when user is Black/O)
+  let shouldFlip = false;
+  if (gameMode === "online" && onlinePlayerId === PLAYER_O) {
+    shouldFlip = true;
+  }
+  
+  if (shouldFlip) {
+    // Flip the board: map 0->15, 1->14, 2->13, etc.
+    return BOARD_CELLS - 1 - boardIndex;
+  }
+  return boardIndex;
+}
+
+function getBoardIndex(displayIndex) {
+  // Reverse mapping: convert display index back to board index
+  let shouldFlip = false;
+  if (gameMode === "online" && onlinePlayerId === PLAYER_O) {
+    shouldFlip = true;
+  }
+  
+  if (shouldFlip) {
+    return BOARD_CELLS - 1 - displayIndex;
+  }
+  return displayIndex;
+}
+
 function renderBoard() {
-  for (let i = 0; i < BOARD_CELLS; i++) {
-    const cellEl = document.getElementById("cell-" + i);
+  for (let displayIdx = 0; displayIdx < BOARD_CELLS; displayIdx++) {
+    const cellEl = document.getElementById("cell-" + displayIdx);
     if (!cellEl) continue;
 
+    const boardIdx = getBoardIndex(displayIdx);
     const contentEl = cellEl.querySelector(".cell-content") || cellEl;
-    const cell = board[i];
+    const cell = board[boardIdx];
 
     cellEl.classList.remove("cell-x", "cell-o", "cell-selected");
 
@@ -160,7 +194,8 @@ function renderBoard() {
   }
 
   if (selectedFromBoardIndex !== null) {
-    const selEl = document.getElementById("cell-" + selectedFromBoardIndex);
+    const displayIdx = getDisplayIndex(selectedFromBoardIndex);
+    const selEl = document.getElementById("cell-" + displayIdx);
     if (selEl) {
       selEl.classList.add("cell-selected");
     }
@@ -170,22 +205,34 @@ function renderBoard() {
 }
 
 function renderPiecePools() {
-  const humanContainer = document.getElementById("human-pieces");
-  const aiContainer = document.getElementById("ai-pieces");
+  const bottomContainer = document.getElementById("human-pieces");
+  const topContainer = document.getElementById("ai-pieces");
 
-  if (humanContainer) {
-    humanContainer.innerHTML = "";
-    pools[PLAYER_X].forEach(type => {
-      const el = createPieceElement(PLAYER_X, type);
-      humanContainer.appendChild(el);
+  // Determine which player the user controls
+  let userPlayer = PLAYER_X; // Default: user is White (X)
+  if (gameMode === "online" && onlinePlayerId) {
+    userPlayer = onlinePlayerId;
+  }
+  // In AI mode, user is always X
+  // In local 2-player mode, user can be either, but we'll default to X on bottom
+
+  const opponentPlayer = userPlayer === PLAYER_X ? PLAYER_O : PLAYER_X;
+
+  // Top container shows opponent's pieces
+  if (topContainer) {
+    topContainer.innerHTML = "";
+    pools[opponentPlayer].forEach(type => {
+      const el = createPieceElement(opponentPlayer, type);
+      topContainer.appendChild(el);
     });
   }
 
-  if (aiContainer) {
-    aiContainer.innerHTML = "";
-    pools[PLAYER_O].forEach(type => {
-      const el = createPieceElement(PLAYER_O, type);
-      aiContainer.appendChild(el);
+  // Bottom container shows user's pieces
+  if (bottomContainer) {
+    bottomContainer.innerHTML = "";
+    pools[userPlayer].forEach(type => {
+      const el = createPieceElement(userPlayer, type);
+      bottomContainer.appendChild(el);
     });
   }
 }
@@ -215,8 +262,12 @@ function createPieceElement(player, type) {
   container.addEventListener("click", function () {
     if (gameOver) return;
     if (player !== currentPlayer) return;
+    // In online mode, don't allow piece selection if room is not full yet
+    if (gameMode === "online" && !isRoomFull) return;
     // In AI mode, only allow White (human) to select from the pool
     if (gameMode === "ai" && currentPlayer === PLAYER_O) return;
+    // In online mode, only allow your own pieces
+    if (gameMode === "online" && player !== onlinePlayerId) return;
     selectedPoolPiece = { player, type };
     selectedFromBoardIndex = null;
     updateStatus();
@@ -240,7 +291,20 @@ function updateStatus() {
     : "Place a piece.";
 
   const colorName = currentPlayer === PLAYER_X ? "White" : "Black";
-  const modeLabel = gameMode === "ai" ? " (vs AI)" : "";
+  let modeLabel = "";
+  if (gameMode === "ai") {
+    modeLabel = " (vs AI)";
+  } else if (gameMode === "online") {
+    if (!isRoomFull) {
+      modeLabel = " (Waiting for opponent...)";
+    } else if (onlinePlayerId && currentPlayer === onlinePlayerId) {
+      modeLabel = " (Your turn)";
+    } else if (onlinePlayerId) {
+      modeLabel = " (Opponent's turn)";
+    } else {
+      modeLabel = " (Online - connecting...)";
+    }
+  }
   statusEl.textContent = colorName + " to play" + modeLabel + ". " + movePart;
 
   // Highlight board based on whose turn it is
@@ -322,8 +386,12 @@ function onPoolPieceDragStart(event) {
   const type = slot.dataset.piece;
   if (!player || !type) return;
   if (player !== currentPlayer || gameOver) return;
+  // In online mode, don't allow piece selection if room is not full yet
+  if (gameMode === "online" && !isRoomFull) return;
   // In AI mode, human can only control White (PLAYER_X)
   if (gameMode === "ai" && currentPlayer === PLAYER_O) return;
+  // In online mode, only allow your own pieces
+  if (gameMode === "online" && player !== onlinePlayerId) return;
 
   event.dataTransfer.effectAllowed = "move";
   event.dataTransfer.setData(
@@ -337,7 +405,9 @@ function onPoolPieceDragStart(event) {
 
 function onCellDragOver(event) {
   if (gameOver) return;
+  if (gameMode === "online" && !isRoomFull) return;
   if (gameMode === "ai" && currentPlayer === PLAYER_O) return;
+  if (gameMode === "online" && currentPlayer !== onlinePlayerId) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = "move";
 }
@@ -345,7 +415,9 @@ function onCellDragOver(event) {
 function onCellDrop(event, index) {
   event.preventDefault();
   if (gameOver) return;
+  if (gameMode === "online" && !isRoomFull) return;
   if (gameMode === "ai" && currentPlayer === PLAYER_O) return;
+  if (gameMode === "online" && currentPlayer !== onlinePlayerId) return;
 
   const raw = event.dataTransfer.getData("text/plain");
   if (!raw) return;
@@ -372,6 +444,14 @@ function placePiece(player, type, index) {
   if (gameOver) return;
   if (player !== currentPlayer) return;
   if (board[index] !== null) return;
+
+  // In online mode, emit to server instead of applying locally
+  if (gameMode === "online" && socket) {
+    if (!isRoomFull) return; // Don't allow moves if waiting for opponent
+    if (player !== onlinePlayerId) return;
+    socket.emit("makeMove", { action: "place", index, type });
+    return;
+  }
 
   const pool = pools[player];
   const idx = pool.indexOf(type);
@@ -406,6 +486,14 @@ function tryMovePiece(fromIndex, toIndex) {
 
   if (!isLegalMove(fromIndex, toIndex, fromCell)) {
     return false;
+  }
+
+  // In online mode, emit to server instead of applying locally
+  if (gameMode === "online" && socket) {
+    if (!isRoomFull) return false; // Don't allow moves if waiting for opponent
+    if (fromCell.player !== onlinePlayerId) return false;
+    socket.emit("makeMove", { action: "move", fromIndex, toIndex });
+    return true;
   }
 
   // If we are capturing an opponent piece, return it to that player's pool
@@ -835,6 +923,11 @@ function aiTakeTurn() {
 }
 
 function afterAction() {
+  // In online mode, server handles turn switching - don't do it locally
+  if (gameMode === "online") {
+    return;
+  }
+  
   const winner = checkWinner(board);
   if (winner) {
     endGame((winner === PLAYER_X ? "White" : "Black") + " wins!");
@@ -863,11 +956,17 @@ function afterAction() {
  * Click handler for board cells
  ****************************************************/
 
-function handleCellClick(index) {
+function handleCellClick(displayIndex) {
   if (gameOver) return;
+  // In online mode, don't allow moves if room is not full yet
+  if (gameMode === "online" && !isRoomFull) return;
   // In AI mode, ignore clicks when it's the AI's turn (Black)
   if (gameMode === "ai" && currentPlayer === PLAYER_O) return;
+  // In online mode, ignore clicks when it's not your turn
+  if (gameMode === "online" && currentPlayer !== onlinePlayerId) return;
 
+  // Convert display index to board index (accounts for board flipping)
+  const index = getBoardIndex(displayIndex);
   const cell = board[index];
 
   // If we have a selected piece from the board, try to move it.
@@ -940,13 +1039,151 @@ function initGame() {
     const mode = btn.getAttribute("data-mode");
     btn.classList.toggle("mode-active", mode === gameMode);
   });
+
+  // Initialize online mode if it's the default
+  if (gameMode === "online" && !socket) {
+    socket = io();
+    setupSocketHandlers();
+    socket.emit("findOrCreateRoom");
+  }
 }
 
 function setGameMode(mode) {
-  if (mode !== "ai" && mode !== "human") {
+  if (mode !== "ai" && mode !== "human" && mode !== "online") {
     mode = "human";
   }
+  
+  // Disconnect socket if switching away from online
+  if (gameMode === "online" && mode !== "online" && socket) {
+    socket.disconnect();
+    socket = null;
+    onlinePlayerId = null;
+    roomId = null;
+    isRoomFull = false;
+  }
+  
+  // Connect socket if switching to online
+  if (mode === "online" && !socket) {
+    socket = io();
+    setupSocketHandlers();
+    // Automatically find or create a room
+    socket.emit("findOrCreateRoom");
+    document.getElementById("room-ui").style.display = "none"; // Hide room UI
+  }
+  
   gameMode = mode;
   initGame();
+}
+
+/****************************************************
+ * Online multiplayer (Socket.IO)
+ ****************************************************/
+
+function setupSocketHandlers() {
+  if (!socket) return;
+
+  socket.on("roomCreated", (data) => {
+    roomId = data.roomId;
+    onlinePlayerId = data.playerId;
+    isRoomFull = data.isFull || false;
+    // Update status to show waiting for opponent
+    updateStatus();
+  });
+
+  socket.on("roomJoined", (data) => {
+    roomId = data.roomId;
+    isRoomFull = data.isFull || (data.playersCount === 2);
+    // Find our player ID from the players list
+    // The server sends players array with { id: socketId, playerId: 'X'|'O' }
+    const ourPlayer = data.players.find(p => p.id === socket.id);
+    if (ourPlayer && ourPlayer.playerId) {
+      onlinePlayerId = ourPlayer.playerId;
+    } else {
+      // Fallback: if we can't find ourselves, assign based on order
+      // Second player to join is always O
+      onlinePlayerId = data.players.length === 2 ? "O" : "X";
+    }
+    syncGameStateFromServer(data.gameState);
+  });
+
+  socket.on("gameStateUpdate", (gameState) => {
+    syncGameStateFromServer(gameState);
+  });
+
+  socket.on("error", (data) => {
+    alert(data.message || "An error occurred");
+  });
+
+  socket.on("playerDisconnected", (data) => {
+    if (data.reason === "opponent_disconnected") {
+      // Opponent disconnected during a game - winner message will come via gameStateUpdate
+      const opponentColor = data.playerId === "X" ? "White" : "Black";
+      const statusEl = document.getElementById("status");
+      if (statusEl) {
+        statusEl.textContent = `${opponentColor} disconnected. You win!`;
+        statusEl.classList.add("status-strong");
+      }
+    } else {
+      // Player disconnected while waiting for opponent
+      const statusEl = document.getElementById("status");
+      if (statusEl) {
+        statusEl.textContent = "Opponent disconnected. Waiting for a new opponent...";
+      }
+      isRoomFull = false;
+      updateStatus();
+    }
+  });
+}
+
+function syncGameStateFromServer(gameState) {
+  // Preserve onlinePlayerId - don't let it get reset
+  const savedPlayerId = onlinePlayerId;
+  
+  board = gameState.board.map(cell => cell ? { ...cell } : null);
+  pools = {
+    X: gameState.pools.X.slice(),
+    O: gameState.pools.O.slice()
+  };
+  currentPlayer = gameState.currentPlayer;
+  gameOver = gameState.gameOver;
+  
+  // Restore onlinePlayerId if it was set
+  if (savedPlayerId) {
+    onlinePlayerId = savedPlayerId;
+  }
+  
+  renderBoard();
+  renderPiecePools();
+  
+  // Update status after syncing state
+  updateStatus();
+  
+  if (gameState.winner) {
+    endGame((gameState.winner === "X" ? "White" : "Black") + " wins!");
+  } else if (gameState.gameOver) {
+    endGame("Draw!");
+  }
+}
+
+// Room functions kept for backward compatibility but not used in auto-join flow
+function createRoom() {
+  if (!socket) {
+    alert("Please select Online mode first");
+    return;
+  }
+  socket.emit("createRoom");
+}
+
+function joinRoom() {
+  if (!socket) {
+    alert("Please select Online mode first");
+    return;
+  }
+  const roomIdInput = document.getElementById("room-id-input").value.trim();
+  if (!roomIdInput) {
+    alert("Please enter a room ID");
+    return;
+  }
+  socket.emit("joinRoom", { roomId: roomIdInput });
 }
 
