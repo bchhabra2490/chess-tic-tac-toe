@@ -871,7 +871,7 @@ function applyMove(b, p, fromIndex, toIndex) {
 const MINIMAX_WIN = 100;
 const MINIMAX_LOSS = -100;
 const MINIMAX_DRAW = 0;
-const MAX_DEPTH = 4;
+const MAX_DEPTH = 5;
 
 function minimax(b, p, depth, isMaximizing, alpha, beta) {
   const winner = checkWinner(b);
