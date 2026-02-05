@@ -1116,10 +1116,14 @@ function recordHistorySnapshot() {
 function stepHistory(direction) {
   if (!moveHistory.length) return;
   const newIndex = moveIndex + direction;
-  if (newIndex < 0 || newIndex > moveHistory.length) return;
+  // Valid indices are 0 to moveHistory.length - 1
+  if (newIndex < 0 || newIndex >= moveHistory.length) return;
 
   moveIndex = newIndex;
   const snapshot = moveHistory[moveIndex];
+  
+  // Safety check: ensure snapshot exists and has required properties
+  if (!snapshot || !snapshot.board || !snapshot.pools) return;
 
   board = snapshot.board.map(cell => (cell ? { ...cell } : null));
   pools = {
@@ -1302,6 +1306,10 @@ function syncGameStateFromServer(gameState) {
   // Preserve onlinePlayerId - don't let it get reset
   const savedPlayerId = onlinePlayerId;
   
+  // Store previous board to detect last move destination
+  const previousBoard = board && board.length > 0 ? board.map(cell => cell ? { ...cell } : null) : null;
+  const previousCurrentPlayer = currentPlayer;
+  
   board = gameState.board.map(cell => cell ? { ...cell } : null);
   pools = {
     X: gameState.pools.X.slice(),
@@ -1309,6 +1317,26 @@ function syncGameStateFromServer(gameState) {
   };
   currentPlayer = gameState.currentPlayer;
   gameOver = gameState.gameOver;
+  
+  // Detect last move destination by comparing boards (only if turn changed, indicating a move was made)
+  if (previousBoard && previousCurrentPlayer && previousCurrentPlayer !== currentPlayer && !gameOver) {
+    // Find squares that changed - the destination of the last move
+    for (let i = 0; i < BOARD_CELLS; i++) {
+      const oldCell = previousBoard[i];
+      const newCell = board[i];
+      
+      // If a square became occupied (placement) or changed (move/capture), it's the last move destination
+      if ((!oldCell && newCell) || (oldCell && newCell && 
+          (oldCell.player !== newCell.player || oldCell.type !== newCell.type || 
+           (oldCell.dir !== newCell.dir)))) {
+        lastMoveIndex = i;
+        break; // Take the first change found (should be the move destination)
+      }
+    }
+  } else if (!previousBoard) {
+    // Initial state - no last move yet
+    lastMoveIndex = null;
+  }
   
   // Update move history for online games as well
   recordHistorySnapshot();
