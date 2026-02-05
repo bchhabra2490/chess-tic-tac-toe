@@ -312,7 +312,7 @@ io.on("connection", (socket) => {
 
       const piece = { player: playerInfo.playerId, type };
       if (type === "P") {
-        piece.dir = playerInfo.playerId === "X" ? -1 : 1;
+        piece.dir = playerInfo.playerId === "X" ? 1 : -1;
         if(([12, 13, 14, 15].includes(index) && playerInfo.playerId === "X") || ([0, 1, 2, 3].includes(index) && playerInfo.playerId === "O")){
           piece.dir = -1 * piece.dir;
           console.log('piece.dir', piece.dir);
