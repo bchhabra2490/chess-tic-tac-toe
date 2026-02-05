@@ -99,7 +99,8 @@
       background: radial-gradient(circle at top, #dbeafe 0, #e5e7eb 60%);
       padding: 8px;
       border-radius: 16px;
-      border: 1px solid rgba(148, 163, 184, 0.4);
+      border: 3px solid rgba(148, 163, 184, 0.4);
+      box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.2);
     }
 
     .cell {
@@ -200,6 +201,12 @@
       box-shadow: 0 0 0 2px #6366f1, 0 0 18px rgba(79, 70, 229, 0.35);
       border-color: #6366f1 !important;
       transform: translateY(-1px);
+    }
+
+    /* Subtle highlight for the square where the last move ended */
+    .cell-last-move {
+      background: radial-gradient(circle at 30% 0, #fefce8 0, #facc15 40%, #e5e7eb 90%);
+      box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.8), 0 0 14px rgba(234, 179, 8, 0.6);
     }
 
     /* Highlight all squares based on whose turn it is */

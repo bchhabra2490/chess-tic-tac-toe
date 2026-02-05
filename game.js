@@ -22,6 +22,9 @@ let pools; // remaining pieces not yet on the board
 let currentPlayer;
 let gameOver;
 
+// Track last move for visual highlight
+let lastMoveIndex = null; // board index (0–15) of the last move destination
+
 // Move history (for replay with left/right arrow keys)
 let moveHistory = []; // array of snapshots { board, pools, currentPlayer, gameOver }
 let moveIndex = -1; // index into moveHistory; -1 = no moves yet
@@ -176,7 +179,7 @@ function renderBoard() {
     const contentEl = cellEl.querySelector(".cell-content") || cellEl;
     const cell = board[boardIdx];
 
-    cellEl.classList.remove("cell-x", "cell-o", "cell-selected");
+    cellEl.classList.remove("cell-x", "cell-o", "cell-selected", "cell-last-move");
 
     // Remove any existing pawn direction arrow
     const existingArrow = cellEl.querySelector(".pawn-direction-arrow");
@@ -205,12 +208,21 @@ function renderBoard() {
         cellEl.classList.add("cell-o");
       }
 
+      // Highlight the square of the last move (destination)
+      if (lastMoveIndex !== null && boardIdx === lastMoveIndex) {
+        cellEl.classList.add("cell-last-move");
+      }
+
       // If this is a pawn with a direction, overlay an arrow icon
       if (cell.type === "P" && typeof cell.dir === "number") {
         const arrowEl = document.createElement("div");
         arrowEl.className = "pawn-direction-arrow";
-        // Visual arrow: dir > 0 means moving up on screen, dir < 0 down
-        arrowEl.textContent = cell.dir > 0 ? "↑" : "↓";
+        // Determine if board is flipped (opponent's perspective in online mode)
+        const isFlipped = gameMode === "online" && onlinePlayerId === PLAYER_O;
+        // For user: dir > 0 = ↑, dir < 0 = ↓
+        // For opponent (flipped): dir > 0 = ↓, dir < 0 = ↑
+        const displayDir = isFlipped ? -cell.dir : cell.dir;
+        arrowEl.textContent = displayDir > 0 ? "↑" : "↓";
         arrowEl.style.position = "absolute";
         arrowEl.style.right = "2px";
         arrowEl.style.bottom = "2px";
@@ -516,9 +528,9 @@ function placePiece(player, type, index) {
     // Initial direction: X pawns go "down" (increasing row),
     // O pawns go "up" (decreasing row).
     piece.dir = player === PLAYER_X ? -1 : 1;
-    if([0, 1, 2, 3, 12, 13, 14, 15].includes(index)){
-      console.log('Pawn placed on edge. reverse direction', piece.dir);
+    if(([12, 13, 14, 15].includes(index) && player === PLAYER_X) || ([0, 1, 2, 3].includes(index) && player === PLAYER_O)){
       piece.dir = -1 * piece.dir;
+      console.log('piece.dir', piece.dir);
     }
   }
 
@@ -527,6 +539,9 @@ function placePiece(player, type, index) {
 
   selectedPoolPiece = null;
   selectedFromBoardIndex = null;
+
+  // Record last move destination for highlight
+  lastMoveIndex = index;
 
   afterAction();
 }
@@ -570,7 +585,7 @@ function tryMovePiece(fromIndex, toIndex) {
   // Pawn direction reversal when it reaches any board edge.
   // Only reverse once: after the first reversal, it keeps that direction.
   if (fromCell.type === "P" && typeof fromCell.dir === "number") {
-    const { row, col } = indexToRowCol(toIndex);
+    const { row } = indexToRowCol(toIndex);
     const atRowEdge = row === 0 || row === BOARD_SIZE - 1;
   
     if (atRowEdge) {
@@ -580,6 +595,9 @@ function tryMovePiece(fromIndex, toIndex) {
 
   selectedFromBoardIndex = null;
   selectedPoolPiece = null;
+
+  // Record last move destination for highlight
+  lastMoveIndex = toIndex;
 
   afterAction();
   return true;
@@ -654,20 +672,16 @@ function isLegalKnightMove(dr, dc) {
 }
 
 function isLegalPawnMove(fr, fc, tr, tc, piece) {
+  console.log('fr', fr);
+  console.log('fc', fc);
+  console.log('tr', tr);
+  console.log('tc', tc);
+  console.log('piece', piece);
   // Pawn always moves strictly according to its current direction.
   // If direction is missing, the move is not allowed.
   if (typeof piece.dir !== "number") return false;
   const dir = piece.dir;
   const forwardRow = fr - dir;
-  // const backwardRow = fr - dir;
-
-  console.log('fr', fr);
-  console.log('fc', fc);
-  console.log('tr', tr);
-  console.log('tc', tc);
-  console.log('dir', dir);
-  console.log('forwardRow', forwardRow);
-  // console.log('backwardRow', backwardRow);
 
   // Forward move (no capture)
   if (tc === fc && tr === forwardRow) {
@@ -675,15 +689,8 @@ function isLegalPawnMove(fr, fc, tr, tc, piece) {
     if (board[idx] === null) return true;
   }
 
-  // if ((fr === 0 || fr === BOARD_SIZE - 1) && tr === backwardRow && tc==fc) {
-  //   console.log('On edge');
-  //   const idx = rowColToIndex(tr, tc);
-  //   if (board[idx] === null) return true;
-  // }
-
   // Diagonal capture
   if (tr === forwardRow && Math.abs(tc - fc) === 1) {
-    console.log('Diagonal capture');
     const idx = rowColToIndex(tr, tc);
     const target = board[idx];
     if (target && target.player !== piece.player) return true;
@@ -758,12 +765,8 @@ function isLegalBishopMoveOnBoard(b, fr, fc, tr, tc) {
 function isLegalPawnMoveOnBoard(b, fr, fc, tr, tc, piece) {
   if (typeof piece.dir !== "number") return false;
   const dir = piece.dir;
-  const forwardRow = fr + dir;
-  const backwardRow = fr - dir;
+  const forwardRow = fr - dir;
   if (tc === fc && tr === forwardRow) {
-    if (b[rowColToIndex(tr, tc)] === null) return true;
-  }
-  if ((fr === 0 || fr === BOARD_SIZE - 1) && tr === backwardRow && tc==fc) {
     if (b[rowColToIndex(tr, tc)] === null) return true;
   }
   if (tr === forwardRow && Math.abs(tc - fc) === 1) {
@@ -836,7 +839,13 @@ function applyPlacement(b, p, player, type, index) {
   if (idx === -1) return;
   const piece = { player, type };
   if (type === "P") {
+    // Initial direction: X pawns go "down" (increasing row),
+    // O pawns go "up" (decreasing row).
     piece.dir = player === PLAYER_X ? -1 : 1;
+    // If pawn is placed on an edge square, reverse direction
+    if(([12, 13, 14, 15].includes(index) && player === PLAYER_X) || ([0, 1, 2, 3].includes(index) && player === PLAYER_O)){
+      piece.dir = -1 * piece.dir;
+    }
   }
   b[index] = piece;
   pool.splice(idx, 1);
@@ -854,7 +863,7 @@ function applyMove(b, p, fromIndex, toIndex) {
   if (fromCell.type === "P" && typeof fromCell.dir === "number") {
     const { row } = indexToRowCol(toIndex);
     if (row === 0 || row === BOARD_SIZE - 1) {
-      b[toIndex].dir = -fromCell.dir;
+      b[toIndex].dir = -1 * fromCell.dir;
     }
   }
 }
@@ -1091,7 +1100,8 @@ function recordHistorySnapshot() {
       O: pools.O.slice()
     },
     currentPlayer,
-    gameOver
+    gameOver,
+    lastMoveIndex: lastMoveIndex  // Track which square the last move ended on
   };
 
   // If we had rewound, drop any "future" moves
@@ -1118,6 +1128,8 @@ function stepHistory(direction) {
   };
   currentPlayer = snapshot.currentPlayer;
   gameOver = snapshot.gameOver;
+  // Restore last move highlight from snapshot (or null if not set)
+  lastMoveIndex = snapshot.lastMoveIndex !== undefined ? snapshot.lastMoveIndex : null;
 
   renderBoard();
   renderPiecePools();
@@ -1146,6 +1158,9 @@ function initGame() {
   selectedFromBoardIndex = null;
   selectedPoolPiece = null;
   isAiThinking = false;
+
+  // Reset last-move highlight
+  lastMoveIndex = null;
 
   // Reset history and record initial position
   moveHistory = [];

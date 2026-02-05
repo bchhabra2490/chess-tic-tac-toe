@@ -115,13 +115,16 @@ function isLegalBishopMove(b, fr, fc, tr, tc) {
 function isLegalPawnMove(b, fr, fc, tr, tc, piece) {
   if (typeof piece.dir !== "number") return false;
   const dir = piece.dir;
-  const forwardRow = fr + dir;
-  const backwardRow = fr - dir;
+  const forwardRow = fr - dir;
   
+  console.log('fr', fr);
+  console.log('fc', fc);
+  console.log('tr', tr);
+  console.log('tc', tc);
+  console.log('dir', dir);
+  console.log('forwardRow', forwardRow);
+
   if (tc === fc && tr === forwardRow) {
-    if (b[rowColToIndex(tr, tc)] === null) return true;
-  }
-  if ((fr === 0 || fr === BOARD_SIZE - 1) && tr === backwardRow) {
     if (b[rowColToIndex(tr, tc)] === null) return true;
   }
   if (tr === forwardRow && Math.abs(tc - fc) === 1) {
@@ -310,6 +313,10 @@ io.on("connection", (socket) => {
       const piece = { player: playerInfo.playerId, type };
       if (type === "P") {
         piece.dir = playerInfo.playerId === "X" ? -1 : 1;
+        if(([12, 13, 14, 15].includes(index) && playerInfo.playerId === PLAYER_X) || ([0, 1, 2, 3].includes(index) && playerInfo.playerId === PLAYER_O)){
+          piece.dir = -1 * piece.dir;
+          console.log('piece.dir', piece.dir);
+        }
       }
       gameState.board[index] = piece;
       pool.splice(idx, 1);
