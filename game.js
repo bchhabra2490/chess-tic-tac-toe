@@ -528,7 +528,7 @@ function placePiece(player, type, index) {
     // Initial direction: X pawns go "down" (increasing row),
     // O pawns go "up" (decreasing row).
     piece.dir = player === PLAYER_X ? 1 : -1;
-    if(([12, 13, 14, 15].includes(index) && player === PLAYER_X) || ([0, 1, 2, 3].includes(index) && player === PLAYER_O)){
+    if(([12, 13, 14, 15].includes(index) && player === PLAYER_O) || ([0, 1, 2, 3].includes(index) && player === PLAYER_X)){
       piece.dir = -1 * piece.dir;
       console.log('piece.dir', piece.dir);
     }
@@ -843,7 +843,7 @@ function applyPlacement(b, p, player, type, index) {
     // O pawns go "up" (decreasing row).
     piece.dir = player === PLAYER_X ? 1 : -1;
     // If pawn is placed on an edge square, reverse direction
-    if(([12, 13, 14, 15].includes(index) && player === PLAYER_X) || ([0, 1, 2, 3].includes(index) && player === PLAYER_O)){
+    if(([12, 13, 14, 15].includes(index) && player === PLAYER_O) || ([0, 1, 2, 3].includes(index) && player === PLAYER_X)){
       piece.dir = -1 * piece.dir;
     }
   }
