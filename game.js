@@ -22,6 +22,10 @@ let pools; // remaining pieces not yet on the board
 let currentPlayer;
 let gameOver;
 
+// Move history (for replay with left/right arrow keys)
+let moveHistory = []; // array of snapshots { board, pools, currentPlayer, gameOver }
+let moveIndex = -1; // index into moveHistory; -1 = no moves yet
+
 // Modes: "human" (2 players), "ai" (human vs AI as Black), or "online"
 let gameMode = "online";
 let isAiThinking = false;
@@ -163,11 +167,22 @@ function renderBoard() {
     const cellEl = document.getElementById("cell-" + displayIdx);
     if (!cellEl) continue;
 
+    // Ensure cell is positioned for overlays (pawn direction arrows)
+    if (!cellEl.style.position) {
+      cellEl.style.position = "relative";
+    }
+
     const boardIdx = getBoardIndex(displayIdx);
     const contentEl = cellEl.querySelector(".cell-content") || cellEl;
     const cell = board[boardIdx];
 
     cellEl.classList.remove("cell-x", "cell-o", "cell-selected");
+
+    // Remove any existing pawn direction arrow
+    const existingArrow = cellEl.querySelector(".pawn-direction-arrow");
+    if (existingArrow) {
+      existingArrow.remove();
+    }
 
     if (cell) {
       const svgPath = getPieceSvgPath(cell.player, cell.type);
@@ -188,6 +203,23 @@ function renderBoard() {
         cellEl.classList.add("cell-x");
       } else if (cell.player === PLAYER_O) {
         cellEl.classList.add("cell-o");
+      }
+
+      // If this is a pawn with a direction, overlay an arrow icon
+      if (cell.type === "P" && typeof cell.dir === "number") {
+        const arrowEl = document.createElement("div");
+        arrowEl.className = "pawn-direction-arrow";
+        // Visual arrow: dir > 0 means moving up on screen, dir < 0 down
+        arrowEl.textContent = cell.dir > 0 ? "↑" : "↓";
+        arrowEl.style.position = "absolute";
+        arrowEl.style.right = "2px";
+        arrowEl.style.bottom = "2px";
+        arrowEl.style.fontSize = "12px";
+        arrowEl.style.fontWeight = "bold";
+        arrowEl.style.color = "#f97316"; // accent orange
+        arrowEl.style.textShadow = "0 0 2px rgba(0,0,0,0.6)";
+        arrowEl.style.pointerEvents = "none";
+        cellEl.appendChild(arrowEl);
       }
     } else {
       contentEl.textContent = "";
@@ -281,7 +313,10 @@ function updateStatus() {
   const statusEl = document.getElementById("status");
   if (!statusEl) return;
 
-  if (gameOver) return;
+  if (gameOver) {
+    statusEl.textContent = "Game over";
+    return;
+  }
 
   const canMove = canCurrentPlayerMovePieces();
   const poolCount = pools[currentPlayer].length;
@@ -313,6 +348,11 @@ function updateStatus() {
 
   statusEl.textContent =
     colorName + " to play" + modeLabel + onlineInfo + ". " + movePart;
+
+  // If we're viewing an old position in the move history, annotate status
+  if (moveHistory.length > 0 && moveIndex >= 0 && moveIndex !== moveHistory.length - 1) {
+    statusEl.textContent += ` (Viewing move ${moveIndex + 1}/${moveHistory.length})`;
+  }
 
   // Highlight board based on whose turn it is
   const wrapper = document.querySelector(".game-wrapper");
@@ -389,6 +429,9 @@ function onPoolPieceDragStart(event) {
   const slot = event.target.closest(".piece-slot");
   if (!slot) return;
 
+  // Don't allow editing while viewing historical position
+  if (moveHistory.length > 0 && moveIndex !== moveHistory.length - 1) return;
+
   const player = slot.dataset.player;
   const type = slot.dataset.piece;
   if (!player || !type) return;
@@ -422,6 +465,8 @@ function onCellDragOver(event) {
 function onCellDrop(event, index) {
   event.preventDefault();
   if (gameOver) return;
+  // Don't allow editing while viewing historical position
+  if (moveHistory.length > 0 && moveIndex !== moveHistory.length - 1) return;
   if (gameMode === "online" && !isRoomFull) return;
   if (gameMode === "ai" && currentPlayer === PLAYER_O) return;
   if (gameMode === "online" && currentPlayer !== onlinePlayerId) return;
@@ -449,6 +494,8 @@ function onCellDrop(event, index) {
 
 function placePiece(player, type, index) {
   if (gameOver) return;
+  // Don't allow editing while viewing historical position
+  if (moveHistory.length > 0 && moveIndex !== moveHistory.length - 1) return;
   if (player !== currentPlayer) return;
   if (board[index] !== null) return;
 
@@ -469,6 +516,10 @@ function placePiece(player, type, index) {
     // Initial direction: X pawns go "down" (increasing row),
     // O pawns go "up" (decreasing row).
     piece.dir = player === PLAYER_X ? -1 : 1;
+    if([0, 1, 2, 3, 12, 13, 14, 15].includes(index)){
+      console.log('Pawn placed on edge. reverse direction', piece.dir);
+      piece.dir = -1 * piece.dir;
+    }
   }
 
   board[index] = piece;
@@ -482,6 +533,8 @@ function placePiece(player, type, index) {
 
 function tryMovePiece(fromIndex, toIndex) {
   if (gameOver) return false;
+  // Don't allow editing while viewing historical position
+  if (moveHistory.length > 0 && moveIndex !== moveHistory.length - 1) return false;
   if (!canCurrentPlayerMovePieces()) return false;
 
   const fromCell = board[fromIndex];
@@ -605,9 +658,16 @@ function isLegalPawnMove(fr, fc, tr, tc, piece) {
   // If direction is missing, the move is not allowed.
   if (typeof piece.dir !== "number") return false;
   const dir = piece.dir;
-  const forwardRow = fr + dir;
-  const backwardRow = fr - dir;
+  const forwardRow = fr - dir;
+  // const backwardRow = fr - dir;
 
+  console.log('fr', fr);
+  console.log('fc', fc);
+  console.log('tr', tr);
+  console.log('tc', tc);
+  console.log('dir', dir);
+  console.log('forwardRow', forwardRow);
+  // console.log('backwardRow', backwardRow);
 
   // Forward move (no capture)
   if (tc === fc && tr === forwardRow) {
@@ -615,13 +675,15 @@ function isLegalPawnMove(fr, fc, tr, tc, piece) {
     if (board[idx] === null) return true;
   }
 
-  if ((fr === 0 || fr === BOARD_SIZE - 1) && tr === backwardRow) {
-    const idx = rowColToIndex(tr, tc);
-    if (board[idx] === null) return true;
-  }
+  // if ((fr === 0 || fr === BOARD_SIZE - 1) && tr === backwardRow && tc==fc) {
+  //   console.log('On edge');
+  //   const idx = rowColToIndex(tr, tc);
+  //   if (board[idx] === null) return true;
+  // }
 
   // Diagonal capture
   if (tr === forwardRow && Math.abs(tc - fc) === 1) {
+    console.log('Diagonal capture');
     const idx = rowColToIndex(tr, tc);
     const target = board[idx];
     if (target && target.player !== piece.player) return true;
@@ -701,7 +763,7 @@ function isLegalPawnMoveOnBoard(b, fr, fc, tr, tc, piece) {
   if (tc === fc && tr === forwardRow) {
     if (b[rowColToIndex(tr, tc)] === null) return true;
   }
-  if ((fr === 0 || fr === BOARD_SIZE - 1) && tr === backwardRow) {
+  if ((fr === 0 || fr === BOARD_SIZE - 1) && tr === backwardRow && tc==fc) {
     if (b[rowColToIndex(tr, tc)] === null) return true;
   }
   if (tr === forwardRow && Math.abs(tc - fc) === 1) {
@@ -940,6 +1002,7 @@ function afterAction() {
     endGame((winner === PLAYER_X ? "White" : "Black") + " wins!");
     renderBoard();
     renderPiecePools();
+    recordHistorySnapshot();
     return;
   }
 
@@ -947,9 +1010,9 @@ function afterAction() {
     endGame("Draw!");
     renderBoard();
     renderPiecePools();
+    recordHistorySnapshot();
     return;
   }
-
   currentPlayer = currentPlayer === PLAYER_X ? PLAYER_O : PLAYER_X;
   renderBoard();
   renderPiecePools();
@@ -957,6 +1020,10 @@ function afterAction() {
   if (!gameOver) {
     maybeTriggerAiTurn();
   }
+
+  // Record state after each completed move in local/AI modes.
+  // Snapshot always reflects the side TO move (after turn switch).
+  recordHistorySnapshot();
 }
 
 /****************************************************
@@ -1012,6 +1079,59 @@ function handleCellClick(displayIndex) {
 }
 
 /****************************************************
+ * Move history helpers (keyboard left/right to browse)
+ ****************************************************/
+
+function recordHistorySnapshot() {
+  // Deep-ish copy of current game state for replay
+  const snapshot = {
+    board: board.map(cell => (cell ? { ...cell } : null)),
+    pools: {
+      X: pools.X.slice(),
+      O: pools.O.slice()
+    },
+    currentPlayer,
+    gameOver
+  };
+
+  // If we had rewound, drop any "future" moves
+  if (moveIndex >= 0 && moveIndex < moveHistory.length - 1) {
+    moveHistory = moveHistory.slice(0, moveIndex + 1);
+  }
+
+  moveHistory.push(snapshot);
+  moveIndex = moveHistory.length - 1;
+}
+
+function stepHistory(direction) {
+  if (!moveHistory.length) return;
+  const newIndex = moveIndex + direction;
+  if (newIndex < 0 || newIndex > moveHistory.length) return;
+
+  moveIndex = newIndex;
+  const snapshot = moveHistory[moveIndex];
+
+  board = snapshot.board.map(cell => (cell ? { ...cell } : null));
+  pools = {
+    X: snapshot.pools.X.slice(),
+    O: snapshot.pools.O.slice()
+  };
+  currentPlayer = snapshot.currentPlayer;
+  gameOver = snapshot.gameOver;
+
+  renderBoard();
+  renderPiecePools();
+}
+
+function handleHistoryKeyDown(event) {
+  if (event.key === "ArrowLeft") {
+    stepHistory(-1);
+  } else if (event.key === "ArrowRight") {
+    stepHistory(1);
+  }
+}
+
+/****************************************************
  * Initial setup
  ****************************************************/
 
@@ -1027,6 +1147,10 @@ function initGame() {
   selectedPoolPiece = null;
   isAiThinking = false;
 
+  // Reset history and record initial position
+  moveHistory = [];
+  moveIndex = -1;
+
   // Attach drag & drop handlers to board cells
   for (let i = 0; i < BOARD_CELLS; i++) {
     const cellEl = document.getElementById("cell-" + i);
@@ -1039,6 +1163,12 @@ function initGame() {
 
   renderBoard();
   renderPiecePools();
+
+  // Attach global keyboard listener for history once
+  if (!window.__ctttHistoryKeysBound) {
+    window.__ctttHistoryKeysBound = true;
+    window.addEventListener("keydown", handleHistoryKeyDown);
+  }
 
   // Update active mode button styling
   const buttons = document.querySelectorAll("[data-mode-button]");
@@ -1053,6 +1183,9 @@ function initGame() {
     setupSocketHandlers();
     socket.emit("findOrCreateRoom");
   }
+
+  // Record the initial (empty) position as move 1 in history
+  recordHistorySnapshot();
 }
 
 function setGameMode(mode) {
@@ -1161,6 +1294,9 @@ function syncGameStateFromServer(gameState) {
   };
   currentPlayer = gameState.currentPlayer;
   gameOver = gameState.gameOver;
+  
+  // Update move history for online games as well
+  recordHistorySnapshot();
   
   // Restore onlinePlayerId if it was set
   if (savedPlayerId) {
